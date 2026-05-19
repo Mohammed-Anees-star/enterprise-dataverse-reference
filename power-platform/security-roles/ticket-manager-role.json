@@ -1,0 +1,12 @@
+{
+  "RoleName": "Ticket Manager",
+  "Description": "Full CRUD on tickets and comments. Read on customers. Drives the escalation workflow.",
+  "Privileges": [
+    { "Entity": "new_ticket", "Privileges": ["Create", "Read", "Write", "Delete", "Assign", "Share", "Append", "AppendTo"] },
+    { "Entity": "new_ticketcomment", "Privileges": ["Create", "Read", "Write", "Delete", "AppendTo"] },
+    { "Entity": "new_ticketattachment", "Privileges": ["Create", "Read", "Delete"] },
+    { "Entity": "new_customer", "Privileges": ["Read", "Append"] }
+  ],
+  "PrivilegeDepth": "Organization",
+  "AppliesToTeams": false
+}

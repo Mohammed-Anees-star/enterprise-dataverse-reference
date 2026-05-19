@@ -1,0 +1,174 @@
+{
+  "TableLogicalName": "new_ticket",
+  "DisplayName": "Ticket",
+  "DisplayCollectionName": "Tickets",
+  "PrimaryNameColumn": "new_title",
+  "Description": "Enterprise support ticket. Shared by ASP.NET Core API and Model-driven App.",
+  "IsAuditEnabled": true,
+  "TrackChanges": true,
+
+  "Columns": [
+    {
+      "LogicalName": "new_ticketid",
+      "Type": "UniqueIdentifier",
+      "DisplayName": "Ticket ID",
+      "IsPrimaryKey": true,
+      "IsRequired": false
+    },
+    {
+      "LogicalName": "new_ticketnumber",
+      "Type": "String",
+      "MaxLength": 20,
+      "DisplayName": "Ticket Number",
+      "Description": "Format: TKT-YYYY-NNNNNN. Set by API on creation.",
+      "IsRequired": true,
+      "IsReadOnly": false
+    },
+    {
+      "LogicalName": "new_title",
+      "Type": "String",
+      "MaxLength": 200,
+      "DisplayName": "Title",
+      "IsRequired": true
+    },
+    {
+      "LogicalName": "new_description",
+      "Type": "Memo",
+      "MaxLength": 4000,
+      "DisplayName": "Description"
+    },
+    {
+      "LogicalName": "new_status",
+      "Type": "OptionSet",
+      "DisplayName": "Status",
+      "DefaultValue": 100000000,
+      "Options": [
+        { "Value": 100000000, "Label": "Open", "Color": "#0078D4" },
+        { "Value": 100000001, "Label": "In Progress", "Color": "#F7630C" },
+        { "Value": 100000002, "Label": "Pending Customer", "Color": "#CA5010" },
+        { "Value": 100000003, "Label": "Pending Third Party", "Color": "#8764B8" },
+        { "Value": 100000004, "Label": "Resolved", "Color": "#107C10" },
+        { "Value": 100000005, "Label": "Closed", "Color": "#737373" },
+        { "Value": 100000006, "Label": "Cancelled", "Color": "#D13438" }
+      ]
+    },
+    {
+      "LogicalName": "new_priority",
+      "Type": "OptionSet",
+      "DisplayName": "Priority",
+      "DefaultValue": 100000001,
+      "Options": [
+        { "Value": 100000000, "Label": "Low", "Color": "#107C10" },
+        { "Value": 100000001, "Label": "Medium", "Color": "#0078D4" },
+        { "Value": 100000002, "Label": "High", "Color": "#F7630C" },
+        { "Value": 100000003, "Label": "Critical", "Color": "#D13438" }
+      ]
+    },
+    {
+      "LogicalName": "new_category",
+      "Type": "OptionSet",
+      "DisplayName": "Category",
+      "Options": [
+        { "Value": 100000000, "Label": "Technical Support" },
+        { "Value": 100000001, "Label": "Billing" },
+        { "Value": 100000002, "Label": "Account Management" },
+        { "Value": 100000003, "Label": "Feature Request" },
+        { "Value": 100000004, "Label": "Bug" },
+        { "Value": 100000005, "Label": "General Inquiry" },
+        { "Value": 100000006, "Label": "Security Incident" }
+      ]
+    },
+    {
+      "LogicalName": "new_customerid",
+      "Type": "Lookup",
+      "RelatedTableLogicalName": "new_customer",
+      "DisplayName": "Customer",
+      "IsRequired": true
+    },
+    {
+      "LogicalName": "new_assignedtouserid",
+      "Type": "String",
+      "MaxLength": 100,
+      "DisplayName": "Assigned To (User ID)",
+      "Description": "Azure AD User Object ID of the assigned agent"
+    },
+    {
+      "LogicalName": "new_resolvedat",
+      "Type": "DateTime",
+      "DisplayName": "Resolved At",
+      "DateTimeBehavior": "TimeZoneIndependent"
+    },
+    {
+      "LogicalName": "new_closedat",
+      "Type": "DateTime",
+      "DisplayName": "Closed At",
+      "DateTimeBehavior": "TimeZoneIndependent"
+    },
+    {
+      "LogicalName": "new_escalationcount",
+      "Type": "Integer",
+      "DisplayName": "Escalation Count",
+      "MinValue": 0,
+      "MaxValue": 100,
+      "DefaultValue": 0
+    },
+    {
+      "LogicalName": "new_resolutionnotes",
+      "Type": "Memo",
+      "MaxLength": 2000,
+      "DisplayName": "Resolution Notes"
+    }
+  ],
+
+  "Relationships": [
+    {
+      "Type": "ManyToOne",
+      "SchemaName": "new_ticket_new_customer",
+      "ReferencedTableLogicalName": "new_customer",
+      "ReferencingColumnLogicalName": "new_customerid",
+      "CascadeAssign": "NoCascade",
+      "CascadeDelete": "Restrict",
+      "DisplayName": "Customer"
+    },
+    {
+      "Type": "OneToMany",
+      "SchemaName": "new_ticket_new_ticketcomment",
+      "ReferencedColumnLogicalName": "new_ticketid",
+      "ReferencingTableLogicalName": "new_ticketcomment",
+      "ReferencingColumnLogicalName": "new_ticketid_ref",
+      "CascadeDelete": "Cascade",
+      "DisplayName": "Comments"
+    }
+  ],
+
+  "BusinessRules": [
+    {
+      "Name": "ResolutionNotesRequired",
+      "Description": "Require Resolution Notes when Status is set to Resolved",
+      "TriggerOn": "Update",
+      "Conditions": [
+        { "Column": "new_status", "Operator": "Equal", "Value": 100000004 }
+      ],
+      "Actions": [
+        { "Type": "SetRequired", "Column": "new_resolutionnotes", "Value": true }
+      ]
+    },
+    {
+      "Name": "ClosedTicketReadOnly",
+      "Description": "Make all fields read-only when ticket is Closed or Cancelled",
+      "TriggerOn": "Load",
+      "Conditions": [
+        {
+          "Operator": "Or",
+          "Conditions": [
+            { "Column": "new_status", "Operator": "Equal", "Value": 100000005 },
+            { "Column": "new_status", "Operator": "Equal", "Value": 100000006 }
+          ]
+        }
+      ],
+      "Actions": [
+        { "Type": "LockField", "Columns": ["new_title", "new_description", "new_priority", "new_category"] }
+      ]
+    }
+  ]
+}

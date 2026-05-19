@@ -1,0 +1,40 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "maxTelemetryItemsPerSecond": 20,
+        "excludedTypes": "Request"
+      },
+      "enableLiveMetricsFilters": true
+    },
+    "logLevel": {
+      "default": "Information",
+      "Function": "Information",
+      "Host.Results": "Error",
+      "Host.Aggregator": "Trace"
+    }
+  },
+  "extensions": {
+    "serviceBus": {
+      "prefetchCount": 0,
+      "messageHandlerOptions": {
+        "maxConcurrentCalls": 16,
+        "autoComplete": false,
+        "maxAutoRenewDuration": "00:05:00"
+      },
+      "sessionHandlerOptions": {
+        "maxConcurrentSessions": 8
+      }
+    }
+  },
+  "functionTimeout": "00:05:00",
+  "healthMonitor": {
+    "enabled": true,
+    "healthCheckInterval": "00:00:10",
+    "healthCheckWindow": "00:02:00",
+    "healthCheckThreshold": 6,
+    "counterThreshold": 0.80
+  }
+}

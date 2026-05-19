@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>EnterpriseTicketing.API</RootNamespace>
+    <AssemblyName>EnterpriseTicketing.API</AssemblyName>
+    <Description>API layer - ASP.NET Core Web API, controllers, middleware, Swagger, authentication configuration.</Description>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <UserSecretsId>enterprise-ticketing-api-secrets</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\2-Application\EnterpriseTicketing.Application\EnterpriseTicketing.Application.csproj" />
+    <ProjectReference Include="..\..\3-Infrastructure\EnterpriseTicketing.Infrastructure\EnterpriseTicketing.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- JWT Bearer authentication -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.*" />
+    <!-- Microsoft Identity Web for Azure AD / Entra ID integration -->
+    <PackageReference Include="Microsoft.Identity.Web" Version="3.*" />
+    <!-- Swagger / OpenAPI -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.*" />
+    <!-- API Versioning -->
+    <PackageReference Include="Asp.Versioning.Mvc" Version="8.*" />
+    <PackageReference Include="Asp.Versioning.ApiExplorer" Version="8.*" />
+    <!-- Serilog structured logging -->
+    <PackageReference Include="Serilog.AspNetCore" Version="9.*" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.*" />
+    <PackageReference Include="Serilog.Sinks.ApplicationInsights" Version="4.*" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.*" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.*" />
+    <PackageReference Include="Serilog.Enrichers.CorrelationId" Version="3.*" />
+    <!-- Application Insights -->
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.*" />
+    <!-- Health checks -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.*" />
+    <PackageReference Include="AspNetCore.HealthChecks.AzureServiceBus" Version="9.*" />
+  </ItemGroup>
+
+</Project>

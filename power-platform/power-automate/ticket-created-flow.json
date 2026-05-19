@@ -1,0 +1,69 @@
+{
+  "Name": "Ticket Created - Notification & Triage Flow",
+  "Description": "Triggered when a new Ticket row is added. Sends customer confirmation, alerts Teams on Critical, opens the SLA timer, and posts the initial comment.",
+  "Trigger": {
+    "Type": "Dataverse",
+    "Operation": "When a row is added",
+    "Table": "new_ticket",
+    "Scope": "Organization"
+  },
+  "Actions": [
+    {
+      "Name": "Get_Customer",
+      "Type": "Dataverse - Get a row",
+      "Table": "new_customer",
+      "RowId": "@triggerOutputs()?['body/_new_customerid_value']"
+    },
+    {
+      "Name": "Send_Customer_Confirmation",
+      "Type": "Office365 Outlook - Send an email",
+      "Inputs": {
+        "To": "@outputs('Get_Customer')?['body/new_email']",
+        "Subject": "Ticket received: @{triggerOutputs()?['body/new_ticketnumber']}",
+        "Body": "Hi @{outputs('Get_Customer')?['body/new_fullname']},\n\nWe've received your ticket and our team will be in touch shortly.\n\nReference: @{triggerOutputs()?['body/new_ticketnumber']}\nTitle: @{triggerOutputs()?['body/new_title']}\n\nThank you,\nSupport Team"
+      }
+    },
+    {
+      "Name": "Check_Priority",
+      "Type": "Condition",
+      "Expression": "@equals(triggerOutputs()?['body/new_priority'], 100000003)",
+      "IfYes": [
+        {
+          "Name": "Notify_Critical_Team",
+          "Type": "Teams - Post message in chat or channel",
+          "Inputs": {
+            "Channel": "Critical Tickets",
+            "Message": "🚨 CRITICAL ticket: @{triggerOutputs()?['body/new_ticketnumber']} - @{triggerOutputs()?['body/new_title']} - Customer: @{outputs('Get_Customer')?['body/new_fullname']}"
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Check_Escalation_Threshold",
+      "Type": "Condition",
+      "Expression": "@greater(triggerOutputs()?['body/new_escalationcount'], 2)",
+      "IfYes": [
+        {
+          "Name": "Send_Manager_Alert",
+          "Type": "Office365 Outlook - Send an email",
+          "Inputs": {
+            "To": "support-managers@example.com",
+            "Subject": "Escalation alert - @{triggerOutputs()?['body/new_ticketnumber']}",
+            "Body": "Ticket has been escalated more than twice. Please review."
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Create_Welcome_Comment",
+      "Type": "Dataverse - Add a new row",
+      "Table": "new_ticketcomment",
+      "Inputs": {
+        "new_ticketid": "@triggerOutputs()?['body/new_ticketid']",
+        "new_content": "Ticket received. Triage in progress.",
+        "new_authoruserid": "system@flow",
+        "new_isinternal": true
+      }
+    }
+  ]
+}

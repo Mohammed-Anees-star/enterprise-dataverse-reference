@@ -1,0 +1,18 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "ServiceBus__ConnectionString": "PLACEHOLDER",
+    "Dataverse__Url": "https://yourorg.crm.dynamics.com",
+    "Dataverse__TenantId": "YOUR_TENANT_ID",
+    "Dataverse__ClientId": "YOUR_CLIENT_ID",
+    "Dataverse__ClientSecret": "PLACEHOLDER",
+    "DATAVERSE_WEBHOOK_SECRET": "YOUR_WEBHOOK_SHARED_SECRET",
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "PLACEHOLDER"
+  },
+  "Host": {
+    "LocalHttpPort": 7071,
+    "CORS": "*"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "TableLogicalName": "new_ticketcomment",
+  "DisplayName": "Ticket Comment",
+  "DisplayCollectionName": "Ticket Comments",
+  "Description": "Conversation thread under a Ticket. Internal comments are hidden from the customer-facing portal.",
+  "PrimaryNameColumn": "new_subject",
+  "OwnershipType": "UserOwned",
+  "IsAuditEnabled": true,
+  "Columns": [
+    { "LogicalName": "new_ticketcommentid", "Type": "UniqueIdentifier", "DisplayName": "Comment ID", "IsPrimaryId": true },
+    { "LogicalName": "new_subject", "Type": "String", "MaxLength": 100, "DisplayName": "Subject", "IsPrimaryName": true, "AutoComputed": true },
+    { "LogicalName": "new_ticketid", "Type": "Lookup", "RelatedTable": "new_ticket", "DisplayName": "Ticket", "Required": true },
+    { "LogicalName": "new_content", "Type": "Memo", "MaxLength": 8000, "DisplayName": "Content", "Required": true },
+    { "LogicalName": "new_authoruserid", "Type": "String", "MaxLength": 100, "DisplayName": "Author User ID", "Required": true },
+    { "LogicalName": "new_isinternal", "Type": "Boolean", "DisplayName": "Internal Only", "DefaultValue": false }
+  ],
+  "Relationships": [
+    { "Type": "ManyToOne", "ReferencedTable": "new_ticket", "ReferencingColumn": "new_ticketid", "CascadeBehavior": "Cascade" }
+  ]
+}

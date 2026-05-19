@@ -1,0 +1,77 @@
+## .gitignore for Enterprise Dataverse Reference Implementation
+
+# Build outputs
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!**/packages/repositories.config
+!**/packages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# Code Coverage
+coverage/
+*.coverage
+*.coveragexml
+coverage.json
+lcov.info
+
+# Dotnet Tool Manifest
+.config/
+
+# Secrets — NEVER commit these
+.env
+*.pfx
+*.p12
+local.settings.json
+appsettings.Production.json
+**/secrets.json
+**/*.secrets.json
+
+# Docker
+docker-compose.override.local.yml
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Azure Functions
+.azure/
+azurite-db-*.json
+
+# Publish output
+publish/

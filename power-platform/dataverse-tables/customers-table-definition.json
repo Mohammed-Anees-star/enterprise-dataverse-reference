@@ -1,0 +1,21 @@
+{
+  "TableLogicalName": "new_customer",
+  "DisplayName": "Customer",
+  "DisplayCollectionName": "Customers",
+  "Description": "Customer master record. Source of truth for any party who can raise a ticket.",
+  "PrimaryNameColumn": "new_fullname",
+  "OwnershipType": "OrganizationOwned",
+  "IsAuditEnabled": true,
+  "Columns": [
+    { "LogicalName": "new_customerid", "Type": "UniqueIdentifier", "DisplayName": "Customer ID", "IsPrimaryId": true },
+    { "LogicalName": "new_fullname", "Type": "String", "MaxLength": 200, "DisplayName": "Full Name", "Required": true, "IsPrimaryName": true },
+    { "LogicalName": "new_email", "Type": "String", "MaxLength": 320, "Format": "Email", "DisplayName": "Email", "Required": true, "IsUnique": true },
+    { "LogicalName": "new_phonenumber", "Type": "String", "MaxLength": 50, "Format": "Phone", "DisplayName": "Phone Number" },
+    { "LogicalName": "new_companyname", "Type": "String", "MaxLength": 200, "DisplayName": "Company Name" },
+    { "LogicalName": "new_accountnumber", "Type": "String", "MaxLength": 50, "DisplayName": "Account Number" },
+    { "LogicalName": "new_isactive", "Type": "Boolean", "DisplayName": "Active", "DefaultValue": true }
+  ],
+  "Indexes": [
+    { "Name": "ix_customer_email", "Columns": ["new_email"], "IsUnique": true }
+  ]
+}

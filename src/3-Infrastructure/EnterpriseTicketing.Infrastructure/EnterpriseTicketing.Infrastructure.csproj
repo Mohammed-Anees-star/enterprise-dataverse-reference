@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>EnterpriseTicketing.Infrastructure</RootNamespace>
+    <AssemblyName>EnterpriseTicketing.Infrastructure</AssemblyName>
+    <Description>Infrastructure layer - Dataverse SDK, Web API, Service Bus, external integrations. Implements Application interfaces.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\2-Application\EnterpriseTicketing.Application\EnterpriseTicketing.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Dataverse SDK — primary integration method for server-side operations -->
+    <PackageReference Include="Microsoft.PowerPlatform.Dataverse.Client" Version="1.*" />
+    <!-- MSAL for OAuth2 client credentials flow (used by Web API token provider) -->
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.*" />
+    <!-- Polly 8.x — enterprise resilience and transient fault handling -->
+    <PackageReference Include="Polly" Version="8.*" />
+    <PackageReference Include="Polly.Extensions.Http" Version="3.*" />
+    <!-- Azure Service Bus for async messaging -->
+    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.*" />
+    <!-- Serilog for structured logging -->
+    <PackageReference Include="Serilog" Version="4.*" />
+    <!-- Extensions -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.*" />
+  </ItemGroup>
+
+</Project>

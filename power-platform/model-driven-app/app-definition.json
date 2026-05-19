@@ -1,0 +1,32 @@
+{
+  "Name": "EnterpriseTicketing",
+  "DisplayName": "Enterprise Ticketing",
+  "Description": "Internal-facing Model-driven App for support agents to manage the full ticket lifecycle.",
+  "UniqueName": "new_enterpriseticketing",
+  "WebResourceLogo": "new_enterprise_ticketing_logo",
+  "AppType": "ModelDrivenApp",
+  "Components": [
+    { "Type": "Entity", "Name": "new_ticket" },
+    { "Type": "Entity", "Name": "new_customer" },
+    { "Type": "Entity", "Name": "new_ticketcomment" },
+    { "Type": "SiteMap", "Name": "Default" },
+    { "Type": "Dashboard", "Name": "TicketsDashboard" }
+  ],
+  "Roles": [
+    "Ticket Manager",
+    "Ticket Agent",
+    "Ticket Reader"
+  ],
+  "Forms": [
+    { "Entity": "new_ticket", "Name": "Main", "FormType": "Main" },
+    { "Entity": "new_ticket", "Name": "QuickCreate", "FormType": "QuickCreate" },
+    { "Entity": "new_customer", "Name": "Main", "FormType": "Main" }
+  ],
+  "Views": [
+    { "Entity": "new_ticket", "Name": "Active Tickets", "IsDefault": true },
+    { "Entity": "new_ticket", "Name": "My Open Tickets" },
+    { "Entity": "new_ticket", "Name": "Critical Tickets" },
+    { "Entity": "new_ticket", "Name": "Escalated Tickets" },
+    { "Entity": "new_customer", "Name": "Active Customers", "IsDefault": true }
+  ]
+}

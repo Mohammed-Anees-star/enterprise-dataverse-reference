@@ -1,0 +1,37 @@
+version: '3.8'
+
+# ============================================================
+# Enterprise Ticketing — Docker Compose
+# For local development and integration testing.
+# Production deployment uses Azure App Service + Container Apps.
+# ============================================================
+
+services:
+  enterprise-ticketing-api:
+    image: enterprise-ticketing-api:latest
+    build:
+      context: .
+      dockerfile: src/4-API/EnterpriseTicketing.API/Dockerfile
+      args:
+        BUILD_CONFIGURATION: Release
+    container_name: ticketing-api
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - ticketing-network
+
+networks:
+  ticketing-network:
+    driver: bridge

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>EnterpriseTicketing.Application</RootNamespace>
+    <AssemblyName>EnterpriseTicketing.Application</AssemblyName>
+    <Description>Application layer - CQRS handlers, application services, orchestration. Depends only on Domain.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\1-Domain\EnterpriseTicketing.Domain\EnterpriseTicketing.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MediatR for CQRS command/query dispatching -->
+    <PackageReference Include="MediatR" Version="12.*" />
+    <!-- FluentValidation for declarative, testable validation rules -->
+    <PackageReference Include="FluentValidation" Version="11.*" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.*" />
+    <!-- Abstractions only - no implementation dependency -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
+  </ItemGroup>
+
+</Project>
