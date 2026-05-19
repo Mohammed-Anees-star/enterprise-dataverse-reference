@@ -1,0 +1,24 @@
+# docker-compose.override.yml
+#
+# Developer-only customisations applied automatically by `docker compose up`.
+# Used to mount source for hot-reload, expose extra ports, and inject the dev
+# Application Insights connection string. NOT used in CI or production.
+
+services:
+  enterprise-ticketing-api:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - DOTNET_USE_POLLING_FILE_WATCHER=true
+    ports:
+      - "5000:8080"
+    volumes:
+      - ~/.microsoft/usersecrets:/home/app/.microsoft/usersecrets:ro
+      - ~/.aspnet/https:/home/app/.aspnet/https:ro
+
+  enterprise-ticketing-functions:
+    environment:
+      - AzureFunctionsJobHost__Logging__Console__IsEnabled=true
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "7071:80"
