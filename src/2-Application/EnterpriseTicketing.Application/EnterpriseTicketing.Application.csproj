@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>EnterpriseTicketing.Application</RootNamespace>
     <AssemblyName>EnterpriseTicketing.Application</AssemblyName>
-    <Description>Application layer - CQRS handlers, application services, orchestration. Depends only on Domain.</Description>
+    <Description>Application layer - CQRS handlers, pipeline behaviors, validators. Depends only on Domain.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,15 +15,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- MediatR for CQRS command/query dispatching -->
-    <PackageReference Include="MediatR" Version="12.*" />
-    <!-- FluentValidation for declarative, testable validation rules -->
-    <PackageReference Include="FluentValidation" Version="11.*" />
-    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.*" />
-    <!-- Abstractions only - no implementation dependency -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.*" />
+    <PackageReference Include="MediatR"                                           Version="12.4.1" />
+    <PackageReference Include="FluentValidation"                                  Version="11.11.0" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions"    Version="11.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"         Version="8.0.3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options"                      Version="8.0.2" />
   </ItemGroup>
 
 </Project>

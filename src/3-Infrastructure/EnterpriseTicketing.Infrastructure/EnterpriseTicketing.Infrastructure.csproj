@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>EnterpriseTicketing.Infrastructure</RootNamespace>
     <AssemblyName>EnterpriseTicketing.Infrastructure</AssemblyName>
-    <Description>Infrastructure layer - Dataverse SDK, Web API, Service Bus, external integrations. Implements Application interfaces.</Description>
+    <Description>Infrastructure: Dataverse SDK, Web API, Service Bus, background services.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,22 +15,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Dataverse SDK — primary integration method for server-side operations -->
-    <PackageReference Include="Microsoft.PowerPlatform.Dataverse.Client" Version="1.*" />
-    <!-- MSAL for OAuth2 client credentials flow (used by Web API token provider) -->
-    <PackageReference Include="Microsoft.Identity.Client" Version="4.*" />
-    <!-- Polly 8.x — enterprise resilience and transient fault handling -->
-    <PackageReference Include="Polly" Version="8.*" />
-    <PackageReference Include="Polly.Extensions.Http" Version="3.*" />
-    <!-- Azure Service Bus for async messaging -->
-    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.*" />
-    <!-- Serilog for structured logging -->
-    <PackageReference Include="Serilog" Version="4.*" />
-    <!-- Extensions -->
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.*" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.*" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.*" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.PowerPlatform.Dataverse.Client"              Version="1.2.10" />
+    <PackageReference Include="Microsoft.Identity.Client"                             Version="4.84.1" />
+    <PackageReference Include="Polly"                                                 Version="8.6.6" />
+    <PackageReference Include="Polly.Extensions.Http"                                Version="3.0.0" />
+    <PackageReference Include="Azure.Messaging.ServiceBus"                           Version="7.20.1" />
+    <PackageReference Include="Serilog"                                               Version="4.3.1" />
+    <PackageReference Include="Microsoft.Extensions.Http"                             Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory"                  Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions"            Version="8.0.1" />
+    <!-- AspNetCore Http for CurrentUserService; ships with ASP.NET Core runtime -->
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions"               Version="2.3.0" />
   </ItemGroup>
 
 </Project>

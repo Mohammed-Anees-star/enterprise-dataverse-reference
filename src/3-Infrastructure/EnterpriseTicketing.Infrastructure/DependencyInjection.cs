@@ -17,17 +17,16 @@ using Microsoft.PowerPlatform.Dataverse.Client;
 namespace EnterpriseTicketing.Infrastructure;
 
 /// <summary>
-/// Infrastructure layer DI registration.
-/// All infrastructure implementations are wired here — the API/API layer never
-/// references concrete Infrastructure types directly (only interfaces from Application/Domain).
+/// Infrastructure layer service registrations.
 ///
-/// Registration strategy:
-///   - ServiceClient: Singleton (thread-safe, connection-pooled)
-///   - DataverseService: Singleton (wraps singleton ServiceClient)
-///   - Repositories: Scoped (per-request, safe for request-scoped logging context)
-///   - ServiceBusClient: Singleton (SDK best practice — expensive to create)
-///   - ServiceBusEventBus: Scoped (creates sender per scope, disposed properly)
-///   - Background services: Singleton (long-running host services)
+/// Lifetime strategy:
+///   Singleton  — ServiceClient, ServiceBusClient, IDataverseTokenProvider, IMemoryCache
+///                (expensive to create; thread-safe; long-lived)
+///   Scoped     — Repositories, IDataverseWebApiService, IOutboxStore, IEventBus
+///                (per-request; safe to hold request-scoped data / logger context)
+///   Transient  — DataverseHttpClientHandler
+///                (HttpMessageHandler; new instance per HttpClient pipeline creation)
+///   Hosted     — BackgroundService registrations (IHostedService / singleton by framework)
 /// </summary>
 public static class DependencyInjection
 {
@@ -35,7 +34,7 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Validate configuration at startup — fail fast on missing config
+        // Validate at startup — fail fast rather than at first request
         services.AddOptions<DataverseConfiguration>()
             .Bind(configuration.GetSection(DataverseConfiguration.SectionName))
             .ValidateDataAnnotations()
@@ -58,12 +57,15 @@ public static class DependencyInjection
 
     private static void AddDataverseSdk(IServiceCollection services)
     {
-        // ServiceClient is thread-safe and expensive to create — must be Singleton
+        // ServiceClient is thread-safe and connection-pooled — must be Singleton
         services.AddSingleton<ServiceClient>(sp =>
         {
             var config = sp.GetRequiredService<IOptions<DataverseConfiguration>>().Value;
             var logger = sp.GetRequiredService<ILogger<ServiceClient>>();
 
+            // For production: replace with Managed Identity
+            //   var credential = new DefaultAzureCredential();
+            //   var client = new ServiceClient(new Uri(config.Url), credential, logger);
             var connectionString =
                 $"AuthType=ClientSecret;" +
                 $"Url={config.Url};" +
@@ -73,33 +75,35 @@ public static class DependencyInjection
 
             var client = new ServiceClient(connectionString, logger);
 
+            // IsReady check is non-blocking — connection is verified lazily on first call
+            // We log rather than throw here so the process starts in degraded-mode
+            // rather than crashing entirely; the /health/ready probe will surface the fault.
             if (!client.IsReady)
-                throw new InvalidOperationException(
-                    $"Dataverse ServiceClient failed to initialize: {client.LastError}");
+                logger.LogError("Dataverse ServiceClient is NOT ready: {LastError}", client.LastError);
 
             return client;
         });
 
         services.AddSingleton<IDataverseService, DataverseService>();
+        services.AddSingleton<ITicketNumberSequence, DataverseTicketNumberSequence>();
+        services.AddScoped<IOutboxStore, DataverseOutboxStore>();
     }
 
     private static void AddDataverseWebApi(IServiceCollection services, IConfiguration configuration)
     {
         var dataverseUrl = configuration[$"{DataverseConfiguration.SectionName}:Url"]
-            ?? "https://placeholder.crm.dynamics.com";
+                           ?? "https://placeholder.crm.dynamics.com";
 
         services.AddSingleton<IDataverseTokenProvider, DataverseTokenProvider>();
         services.AddTransient<DataverseHttpClientHandler>();
 
-        // Named HttpClient with Polly policies and DelegatingHandler
         services.AddHttpClient("DataverseWebApi", client =>
-        {
-            client.BaseAddress = new Uri($"{dataverseUrl.TrimEnd('/')}/api/data/v9.2/");
-            client.DefaultRequestHeaders.Add("Accept", "application/json");
-            client.Timeout = TimeSpan.FromSeconds(30);
-        })
-        .AddHttpMessageHandler<DataverseHttpClientHandler>();
-        // Note: In production, add Polly policies here via .AddPolicyHandler()
+            {
+                client.BaseAddress = new Uri($"{dataverseUrl.TrimEnd('/')}/api/data/v9.2/");
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<DataverseHttpClientHandler>();
 
         services.AddScoped<IDataverseWebApiService, DataverseWebApiService>();
     }
@@ -109,11 +113,21 @@ public static class DependencyInjection
         services.AddSingleton<ServiceBusClient>(sp =>
         {
             var config = sp.GetRequiredService<IOptions<ServiceBusConfiguration>>().Value;
-            // In production: use Managed Identity instead of connection string
-            // return new ServiceBusClient(config.FullyQualifiedNamespace, new DefaultAzureCredential());
+
+            // Guard against placeholder values so the app starts without a real connection string
+            if (string.IsNullOrWhiteSpace(config.ConnectionString)
+                || config.ConnectionString.StartsWith("PLACEHOLDER", StringComparison.OrdinalIgnoreCase))
+            {
+                sp.GetRequiredService<ILogger<ServiceBusClient>>()
+                  .LogWarning("ServiceBus ConnectionString is a placeholder — messaging is disabled");
+                // Return a no-op client that accepts the namespace value as a FQDN
+                return new ServiceBusClient("placeholder.servicebus.windows.net");
+            }
+
             return new ServiceBusClient(config.ConnectionString);
         });
 
+        // IEventBus is still wired to ServiceBusEventBus for direct publish scenarios
         services.AddScoped<IEventBus, ServiceBusEventBus>();
     }
 
@@ -126,12 +140,13 @@ public static class DependencyInjection
 
     private static void AddRepositories(IServiceCollection services)
     {
-        services.AddScoped<EnterpriseTicketing.Domain.Interfaces.ITicketRepository, TicketRepository>();
-        services.AddScoped<EnterpriseTicketing.Domain.Interfaces.ICustomerRepository, CustomerRepository>();
+        services.AddScoped<Domain.Interfaces.ITicketRepository, TicketRepository>();
+        services.AddScoped<Domain.Interfaces.ICustomerRepository, CustomerRepository>();
     }
 
     private static void AddBackgroundServices(IServiceCollection services)
     {
         services.AddHostedService<TicketProcessingBackgroundService>();
+        services.AddHostedService<OutboxRelayBackgroundService>();
     }
 }

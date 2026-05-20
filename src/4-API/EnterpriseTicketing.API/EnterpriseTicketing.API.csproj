@@ -1,15 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>EnterpriseTicketing.API</RootNamespace>
     <AssemblyName>EnterpriseTicketing.API</AssemblyName>
-    <Description>API layer - ASP.NET Core Web API, controllers, middleware, Swagger, authentication configuration.</Description>
+    <Description>ASP.NET Core 8 Web API — controllers, middleware, Swagger, auth configuration.</Description>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <UserSecretsId>enterprise-ticketing-api-secrets</UserSecretsId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,27 +20,26 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- JWT Bearer authentication -->
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.*" />
-    <!-- Microsoft Identity Web for Azure AD / Entra ID integration -->
-    <PackageReference Include="Microsoft.Identity.Web" Version="3.*" />
-    <!-- Swagger / OpenAPI -->
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.*" />
-    <!-- API Versioning -->
-    <PackageReference Include="Asp.Versioning.Mvc" Version="8.*" />
-    <PackageReference Include="Asp.Versioning.ApiExplorer" Version="8.*" />
-    <!-- Serilog structured logging -->
-    <PackageReference Include="Serilog.AspNetCore" Version="9.*" />
-    <PackageReference Include="Serilog.Sinks.Console" Version="6.*" />
-    <PackageReference Include="Serilog.Sinks.ApplicationInsights" Version="4.*" />
-    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.*" />
-    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.*" />
-    <PackageReference Include="Serilog.Enrichers.CorrelationId" Version="3.*" />
+    <!-- JWT Bearer / Entra ID — must match installed ASP.NET Core runtime -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"    Version="8.0.27" />
+    <PackageReference Include="Microsoft.Identity.Web"                            Version="3.15.0" />
+    <!-- Swagger/OpenAPI (6.x = last generation targeting net8, no breaking changes) -->
+    <PackageReference Include="Swashbuckle.AspNetCore"                            Version="6.9.0" />
+    <!-- API versioning -->
+    <PackageReference Include="Asp.Versioning.Mvc"                                Version="8.1.1" />
+    <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer"                   Version="8.1.1" />
+    <!-- Serilog -->
+    <PackageReference Include="Serilog.AspNetCore"                                Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console"                             Version="6.1.0" />
+    <PackageReference Include="Serilog.Sinks.ApplicationInsights"                 Version="3.1.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment"                     Version="3.0.1" />
+    <PackageReference Include="Serilog.Enrichers.Thread"                          Version="3.1.0" />
+    <PackageReference Include="Serilog.Enrichers.CorrelationId"                  Version="3.0.1" />
     <!-- Application Insights -->
-    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.*" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore"          Version="2.22.0" />
     <!-- Health checks -->
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.*" />
-    <PackageReference Include="AspNetCore.HealthChecks.AzureServiceBus" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks"    Version="8.0.27" />
+    <PackageReference Include="AspNetCore.HealthChecks.AzureServiceBus"          Version="8.0.1" />
   </ItemGroup>
 
 </Project>

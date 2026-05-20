@@ -8,21 +8,21 @@ using Microsoft.Extensions.Logging;
 namespace EnterpriseTicketing.Infrastructure.Dataverse.Repositories;
 
 /// <summary>
-/// Dataverse-backed implementation of ITicketRepository.
-/// Maps between the domain's Ticket entity and Dataverse attribute dictionaries.
+/// Dataverse-backed implementation of <see cref="ITicketRepository"/>.
 ///
-/// Dataverse table: new_ticket
-/// This "new_" prefix is the default publisher prefix for custom tables.
-/// In production, replace with your organization's publisher prefix (e.g., "contoso_ticket").
-///
-/// Architecture note: The repository is the boundary between the domain model and
-/// the Dataverse data model. All FetchXML, attribute names, and OptionSet value mappings
-/// live here — the domain model is completely unaware of Dataverse specifics.
+/// Fixes applied:
+///  1. Lookup columns (new_customerid) wrapped in <see cref="LookupValue"/> so the
+///     SDK correctly produces <c>EntityReference</c> rather than a raw Guid.
+///  2. Primary-key column (new_ticketid) passed as raw Guid — NOT LookupValue.
+///  3. All string values that flow into FetchXML conditions are passed through
+///     <see cref="DataverseService.XmlEscape"/> to prevent injection.
+///  4. Pagination total count reads <c>TotalRecordCount</c> from the
+///     <c>QueryEntitiesWithCountAsync</c> overload — accurate, not estimated.
 /// </summary>
 public sealed class TicketRepository : ITicketRepository
 {
     private const string EntityName = "new_ticket";
-    private const string EntityIdAttribute = "new_ticketid";
+    private const string CustomerEntityName = "new_customer";
 
     private readonly IDataverseService _dataverseService;
     private readonly ILogger<TicketRepository> _logger;
@@ -43,25 +43,29 @@ public sealed class TicketRepository : ITicketRepository
 
     public async Task<Ticket?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var attributes = await _dataverseService.GetEntityAsync(EntityName, id, AllColumns, cancellationToken);
-        return attributes is not null ? MapToTicket(attributes) : null;
+        var attrs = await _dataverseService.GetEntityAsync(EntityName, id, AllColumns, cancellationToken);
+        return attrs is not null ? MapToTicket(attrs) : null;
     }
 
-    public async Task<Ticket?> GetByTicketNumberAsync(string ticketNumber, CancellationToken cancellationToken = default)
+    public async Task<Ticket?> GetByTicketNumberAsync(
+        string ticketNumber, CancellationToken cancellationToken = default)
     {
+        // FIX: XML-escape the ticket number (user-supplied value)
+        var escapedNumber = DataverseService.XmlEscape(ticketNumber);
+
         var fetchXml = $"""
             <fetch top="1">
               <entity name="{EntityName}">
-                {string.Join("\n", AllColumns.Select(c => $"<attribute name=\"{c}\" />"))}
+                {AttributeColumns()}
                 <filter>
-                  <condition attribute="new_ticketnumber" operator="eq" value="{ticketNumber}" />
+                  <condition attribute="new_ticketnumber" operator="eq" value="{escapedNumber}" />
                 </filter>
               </entity>
             </fetch>
             """;
 
         var (records, _) = await _dataverseService.QueryEntitiesAsync(EntityName, fetchXml, cancellationToken);
-        return records.FirstOrDefault() is { } attrs ? MapToTicket(attrs) : null;
+        return records.FirstOrDefault() is { } a ? MapToTicket(a) : null;
     }
 
     public async Task<(IReadOnlyList<Ticket> Items, int TotalCount)> GetPagedAsync(
@@ -71,38 +75,37 @@ public sealed class TicketRepository : ITicketRepository
         CancellationToken cancellationToken = default)
     {
         var conditions = BuildFilterConditions(filter);
-        var orderBy = MapSortColumn(filter.SortBy);
-        var orderDirection = filter.SortDescending ? "descending" : "ascending";
-        var pageOffset = (pageNumber - 1) * pageSize;
+        var orderAttr = MapSortColumn(filter.SortBy);
+        var descending = filter.SortDescending ? "true" : "false";
 
         var fetchXml = $"""
             <fetch count="{pageSize}" page="{pageNumber}" returntotalrecordcount="true">
               <entity name="{EntityName}">
-                {string.Join("\n", AllColumns.Select(c => $"<attribute name=\"{c}\" />"))}
-                {(conditions.Length > 0 ? $"<filter type=\"and\">{conditions}</filter>" : string.Empty)}
-                <order attribute="{orderBy}" descending="{filter.SortDescending.ToString().ToLower()}" />
+                {AttributeColumns()}
+                {(conditions.Count > 0
+                    ? $"<filter type=\"and\">{string.Join(string.Empty, conditions)}</filter>"
+                    : string.Empty)}
+                <order attribute="{orderAttr}" descending="{descending}" />
               </entity>
             </fetch>
             """;
 
-        var (records, _) = await _dataverseService.QueryEntitiesAsync(EntityName, fetchXml, cancellationToken);
+        // FIX: use the overload that returns the server-computed TotalRecordCount
+        var (records, totalCount, _) = await _dataverseService.QueryEntitiesWithCountAsync(
+            EntityName, fetchXml, cancellationToken);
 
         var tickets = records.Select(MapToTicket).ToList();
-
-        // Note: FetchXML with returntotalrecordcount=true returns count in paging cookie
-        // For simplicity in this reference implementation, we return actual records count
-        // In production, parse the paging cookie for accurate total count
-        var totalCount = tickets.Count < pageSize ? pageOffset + tickets.Count : pageOffset + tickets.Count + 1;
-
         return (tickets.AsReadOnly(), totalCount);
     }
 
-    public async Task<IReadOnlyList<Ticket>> GetByCustomerIdAsync(Guid customerId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Ticket>> GetByCustomerIdAsync(
+        Guid customerId, CancellationToken cancellationToken = default)
     {
+        // Guid values are safe to embed directly in FetchXML; no escaping needed
         var fetchXml = $"""
             <fetch>
               <entity name="{EntityName}">
-                {string.Join("\n", AllColumns.Select(c => $"<attribute name=\"{c}\" />"))}
+                {AttributeColumns()}
                 <filter>
                   <condition attribute="new_customerid" operator="eq" value="{customerId}" />
                 </filter>
@@ -117,31 +120,30 @@ public sealed class TicketRepository : ITicketRepository
 
     public async Task AddAsync(Ticket ticket, CancellationToken cancellationToken = default)
     {
-        var attributes = MapToAttributes(ticket);
-        await _dataverseService.CreateEntityAsync(EntityName, attributes, cancellationToken);
-        _logger.LogDebug("Persisted new ticket {TicketNumber} ({TicketId})", ticket.TicketNumber, ticket.Id);
+        var attrs = MapToAttributes(ticket);
+        await _dataverseService.CreateEntityAsync(EntityName, attrs, cancellationToken);
+        _logger.LogDebug("Persisted ticket {TicketNumber} ({TicketId})", ticket.TicketNumber, ticket.Id);
     }
 
     public async Task UpdateAsync(Ticket ticket, CancellationToken cancellationToken = default)
     {
-        var attributes = MapToAttributes(ticket);
-        await _dataverseService.UpdateEntityAsync(EntityName, ticket.Id, attributes, cancellationToken);
+        var attrs = MapToAttributes(ticket);
+        await _dataverseService.UpdateEntityAsync(EntityName, ticket.Id, attrs, cancellationToken);
         _logger.LogDebug("Updated ticket {TicketId}", ticket.Id);
     }
 
-    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        await _dataverseService.DeleteEntityAsync(EntityName, id, cancellationToken);
-    }
+    public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        => _dataverseService.DeleteEntityAsync(EntityName, id, cancellationToken);
 
-    public async Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        return await _dataverseService.ExistsAsync(EntityName, id, cancellationToken);
-    }
+    public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default)
+        => _dataverseService.ExistsAsync(EntityName, id, cancellationToken);
 
-    private static Ticket MapToTicket(Dictionary<string, object> attrs)
-    {
-        return Ticket.Reconstitute(
+    // -------------------------------------------------------------------------
+    // Mapping
+    // -------------------------------------------------------------------------
+
+    private static Ticket MapToTicket(Dictionary<string, object> attrs) =>
+        Ticket.Reconstitute(
             id: GetGuid(attrs, "new_ticketid"),
             ticketNumber: TicketNumber.Parse(GetString(attrs, "new_ticketnumber")),
             title: GetString(attrs, "new_title"),
@@ -157,20 +159,22 @@ public sealed class TicketRepository : ITicketRepository
             closedAt: GetDateTimeOffsetOrNull(attrs, "new_closedat"),
             escalationCount: GetInt(attrs, "new_escalationcount"),
             resolutionNotes: GetStringOrNull(attrs, "new_resolutionnotes"));
-    }
 
     private static Dictionary<string, object> MapToAttributes(Ticket ticket)
     {
         var attrs = new Dictionary<string, object>
         {
-            ["new_ticketid"] = ticket.Id,
-            ["new_ticketnumber"] = ticket.TicketNumber.Value,
-            ["new_title"] = ticket.Title,
-            ["new_description"] = ticket.Description,
-            ["new_status"] = (int)ticket.Status,
-            ["new_priority"] = (int)ticket.Priority,
-            ["new_category"] = (int)ticket.Category,
-            ["new_customerid"] = ticket.CustomerId,
+            // Primary key — raw Guid, NOT LookupValue
+            ["new_ticketid"]       = ticket.Id,
+            ["new_ticketnumber"]   = ticket.TicketNumber.Value,
+            ["new_title"]          = ticket.Title,
+            ["new_description"]    = ticket.Description,
+            // OptionSet values — pass int so DataverseService wraps in OptionSetValue
+            ["new_status"]         = (int)ticket.Status,
+            ["new_priority"]       = (int)ticket.Priority,
+            ["new_category"]       = (int)ticket.Category,
+            // FIX: lookup column uses LookupValue so SDK produces EntityReference
+            ["new_customerid"]     = new LookupValue(CustomerEntityName, ticket.CustomerId),
             ["new_escalationcount"] = ticket.EscalationCount
         };
 
@@ -189,11 +193,19 @@ public sealed class TicketRepository : ITicketRepository
         return attrs;
     }
 
-    private static string BuildFilterConditions(TicketFilter filter)
+    // -------------------------------------------------------------------------
+    // FetchXML helpers
+    // -------------------------------------------------------------------------
+
+    private static string AttributeColumns() =>
+        string.Join(string.Empty, AllColumns.Select(c => $"<attribute name=\"{c}\" />"));
+
+    private static List<string> BuildFilterConditions(TicketFilter filter)
     {
         var conditions = new List<string>();
 
         if (filter.Status.HasValue)
+            // Integer values are safe to embed directly
             conditions.Add($"<condition attribute=\"new_status\" operator=\"eq\" value=\"{(int)filter.Status}\" />");
 
         if (filter.Priority.HasValue)
@@ -203,44 +215,64 @@ public sealed class TicketRepository : ITicketRepository
             conditions.Add($"<condition attribute=\"new_category\" operator=\"eq\" value=\"{(int)filter.Category}\" />");
 
         if (filter.CustomerId.HasValue)
+            // Guid.ToString() produces a safe hex-dash string; no escaping needed
             conditions.Add($"<condition attribute=\"new_customerid\" operator=\"eq\" value=\"{filter.CustomerId}\" />");
 
         if (!string.IsNullOrWhiteSpace(filter.AssignedToUserId))
-            conditions.Add($"<condition attribute=\"new_assignedtouserid\" operator=\"eq\" value=\"{filter.AssignedToUserId}\" />");
+            // FIX: XML-escape user-supplied string
+            conditions.Add(
+                $"<condition attribute=\"new_assignedtouserid\" operator=\"eq\" " +
+                $"value=\"{DataverseService.XmlEscape(filter.AssignedToUserId)}\" />");
 
         if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
-            conditions.Add($"<condition attribute=\"new_title\" operator=\"like\" value=\"%{filter.SearchTerm}%\" />");
+            // FIX: XML-escape search term — classic injection vector for LIKE queries
+            conditions.Add(
+                $"<condition attribute=\"new_title\" operator=\"like\" " +
+                $"value=\"%{DataverseService.XmlEscape(filter.SearchTerm)}%\" />");
 
-        return string.Join("\n", conditions);
+        return conditions;
     }
 
     private static string MapSortColumn(string sortBy) => sortBy.ToLowerInvariant() switch
     {
         "ticketnumber" => "new_ticketnumber",
-        "title" => "new_title",
-        "status" => "new_status",
-        "priority" => "new_priority",
-        "updatedat" => "modifiedon",
-        _ => "createdon"
+        "title"        => "new_title",
+        "status"       => "new_status",
+        "priority"     => "new_priority",
+        "updatedat"    => "modifiedon",
+        _              => "createdon"
     };
 
-    // Attribute extraction helpers — defensive coding handles missing/null attributes gracefully
-    private static Guid GetGuid(Dictionary<string, object> attrs, string key)
-        => attrs.TryGetValue(key, out var v) && v is Guid g ? g : Guid.Empty;
+    // -------------------------------------------------------------------------
+    // Safe attribute extraction helpers
+    // -------------------------------------------------------------------------
 
-    private static string GetString(Dictionary<string, object> attrs, string key)
-        => attrs.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
+    private static Guid GetGuid(Dictionary<string, object> attrs, string key) =>
+        attrs.TryGetValue(key, out var v) && v is Guid g ? g : Guid.Empty;
 
-    private static string? GetStringOrNull(Dictionary<string, object> attrs, string key)
-        => attrs.TryGetValue(key, out var v) ? v?.ToString() : null;
+    private static string GetString(Dictionary<string, object> attrs, string key) =>
+        attrs.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
+
+    private static string? GetStringOrNull(Dictionary<string, object> attrs, string key) =>
+        attrs.TryGetValue(key, out var v) ? v?.ToString() : null;
 
     private static int GetInt(Dictionary<string, object> attrs, string key)
-        => attrs.TryGetValue(key, out var v) && v is int i ? i :
-           attrs.TryGetValue(key, out v) && int.TryParse(v?.ToString(), out var parsed) ? parsed : 0;
+    {
+        if (attrs.TryGetValue(key, out var v))
+        {
+            if (v is int i) return i;
+            if (int.TryParse(v?.ToString(), out var parsed)) return parsed;
+        }
+        return 0;
+    }
 
-    private static DateTimeOffset GetDateTimeOffset(Dictionary<string, object> attrs, string key)
-        => attrs.TryGetValue(key, out var v) && v is DateTime dt ? new DateTimeOffset(dt, TimeSpan.Zero) : DateTimeOffset.MinValue;
+    private static DateTimeOffset GetDateTimeOffset(Dictionary<string, object> attrs, string key) =>
+        attrs.TryGetValue(key, out var v) && v is DateTime dt
+            ? new DateTimeOffset(dt, TimeSpan.Zero)
+            : DateTimeOffset.MinValue;
 
-    private static DateTimeOffset? GetDateTimeOffsetOrNull(Dictionary<string, object> attrs, string key)
-        => attrs.TryGetValue(key, out var v) && v is DateTime dt ? new DateTimeOffset(dt, TimeSpan.Zero) : null;
+    private static DateTimeOffset? GetDateTimeOffsetOrNull(Dictionary<string, object> attrs, string key) =>
+        attrs.TryGetValue(key, out var v) && v is DateTime dt
+            ? new DateTimeOffset(dt, TimeSpan.Zero)
+            : null;
 }

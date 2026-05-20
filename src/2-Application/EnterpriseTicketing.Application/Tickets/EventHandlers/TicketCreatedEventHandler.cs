@@ -1,30 +1,32 @@
 using EnterpriseTicketing.Domain.Events;
-using MediatR;
 using Microsoft.Extensions.Logging;
 
 namespace EnterpriseTicketing.Application.Tickets.EventHandlers;
 
 /// <summary>
-/// In-process domain event handler for TicketCreatedEvent.
-/// Runs side-effects that must complete within the request (e.g., audit log entries,
-/// in-memory cache invalidation). Heavy work (email, downstream system writes)
-/// is instead handled by the out-of-process Service Bus consumers in Milestone 3+.
+/// Synchronous in-process handler for <see cref="TicketCreatedEvent"/>.
+///
+/// With the Outbox pattern the primary delivery path is:
+///   Command Handler → IOutboxStore.AppendAsync → OutboxRelayBackgroundService → Service Bus
+///
+/// This class handles only the lightweight in-process side-effects that must
+/// complete in the same request (metrics, cache invalidation, audit ring buffer).
+/// It is invoked by the command handler after a successful IOutboxStore.AppendAsync.
+///
+/// NOT a MediatR INotificationHandler — domain events are not dispatched via MediatR;
+/// they are appended to the outbox and dispatched asynchronously via Service Bus.
 /// </summary>
 public sealed class TicketCreatedEventHandler(ILogger<TicketCreatedEventHandler> logger)
-    : INotificationHandler<TicketCreatedEvent>
 {
-    public Task Handle(TicketCreatedEvent notification, CancellationToken cancellationToken)
+    public Task HandleAsync(TicketCreatedEvent @event, CancellationToken cancellationToken = default)
     {
         logger.LogInformation(
-            "Domain event: ticket {TicketNumber} created (id={TicketId}, customer={CustomerId}, priority={Priority})",
-            notification.TicketNumber, notification.TicketId, notification.CustomerId, notification.Priority);
+            "In-process: ticket {TicketNumber} created (Id={TicketId}, Customer={CustomerId}, Priority={Priority})",
+            @event.TicketNumber, @event.TicketId, @event.CustomerId, @event.Priority);
 
-        // Production hook points (kept thin on purpose - heavy lifting belongs in the
-        // out-of-process consumer, not the request thread):
-        //   - Increment "tickets_created_total" Application Insights custom metric
+        // Hook points for inline side-effects:
+        //   - Increment Application Insights custom metric "tickets_created_total"
         //   - Invalidate per-customer ticket-list cache entry
-        //   - Append a row to the in-memory audit ring buffer flushed by a hosted service
-
         return Task.CompletedTask;
     }
 }

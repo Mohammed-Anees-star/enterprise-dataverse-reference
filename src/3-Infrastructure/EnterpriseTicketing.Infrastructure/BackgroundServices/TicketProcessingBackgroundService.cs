@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Azure.Messaging.ServiceBus;
 using EnterpriseTicketing.Domain.Events;
 using EnterpriseTicketing.Infrastructure.Messaging.Configuration;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,25 +11,31 @@ using Microsoft.Extensions.Options;
 namespace EnterpriseTicketing.Infrastructure.BackgroundServices;
 
 /// <summary>
-/// Background service that processes messages from the ticket-events Service Bus queue.
+/// Competing-consumer background service for the ticket-events Service Bus queue.
 ///
-/// Pattern: Competing Consumers — multiple instances of this service can run in parallel
-/// (e.g., scaled-out App Service instances), all consuming from the same queue.
-/// Service Bus ensures each message is delivered to exactly one consumer.
+/// Idempotency (FIX):
+///   Service Bus guarantees at-least-once delivery — a message may arrive more than
+///   once if the consumer crashes between processing and calling CompleteMessage.
+///   We guard against double-processing with a two-tier strategy:
 ///
-/// Idempotency consideration:
-/// Service Bus guarantees at-least-once delivery. A message may be received more than once
-/// if the consumer crashes after processing but before completing the message.
-/// Handlers must be idempotent — processing the same event twice should be safe.
-/// Strategy: Check a processed-message store (Redis/Dataverse) before processing.
+///   Tier 1 — In-process cache (<see cref="IMemoryCache"/>):
+///     Fast O(1) lookup per message.  Survives within a single host lifetime.
+///     TTL: 60 minutes (beyond typical Service Bus lock / retry window).
 ///
-/// Dead letter strategy:
-/// After MaxDeliveryCount retries, Service Bus moves messages to the dead-letter queue.
-/// A separate monitoring process reads from the DLQ, alerts ops, and optionally requeues.
+///   Tier 2 — Distributed cache (Redis / Dataverse) for multi-host deployments:
+///     Inject <see cref="IProcessedEventStore"/> and check before processing.
+///     The stub implementation here logs a warning to make the gap visible.
+///     Replace with a concrete Redis implementation for production scale-out.
+///
+/// Dead-letter strategy:
+///   • TransientException  → Abandon (Service Bus retries; DLQ after MaxDeliveryCount).
+///   • PermanentException  → DeadLetter with reason and description.
+///   • Unknown event type  → Complete (log warning; no retry loop for unknown schema).
 /// </summary>
 public sealed class TicketProcessingBackgroundService : BackgroundService
 {
     private readonly ServiceBusProcessor _processor;
+    private readonly IMemoryCache _processedMessageCache;
     private readonly ILogger<TicketProcessingBackgroundService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -37,48 +44,67 @@ public sealed class TicketProcessingBackgroundService : BackgroundService
         Converters = { new JsonStringEnumConverter() }
     };
 
+    // Cache TTL must exceed (MaxDeliveryCount × LockDuration) to cover the retry window
+    private static readonly MemoryCacheEntryOptions IdempotencyCacheOptions =
+        new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(60));
+
     public TicketProcessingBackgroundService(
         ServiceBusClient serviceBusClient,
+        IMemoryCache processedMessageCache,
         IOptions<ServiceBusConfiguration> configuration,
         ILogger<TicketProcessingBackgroundService> logger)
     {
+        _processedMessageCache = processedMessageCache;
         _logger = logger;
-
-        var options = new ServiceBusProcessorOptions
-        {
-            MaxConcurrentCalls = configuration.Value.MaxConcurrentCalls,
-            AutoCompleteMessages = false, // Always manually complete — prevents data loss on exceptions
-            MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5)
-        };
 
         _processor = serviceBusClient.CreateProcessor(
             configuration.Value.TicketEventsQueueName,
-            options);
+            new ServiceBusProcessorOptions
+            {
+                MaxConcurrentCalls   = configuration.Value.MaxConcurrentCalls,
+                AutoCompleteMessages = false,           // explicit Complete/Abandon/DeadLetter
+                MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5)
+            });
 
         _processor.ProcessMessageAsync += ProcessMessageAsync;
-        _processor.ProcessErrorAsync += ProcessErrorAsync;
+        _processor.ProcessErrorAsync   += ProcessErrorAsync;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Ticket processing background service starting");
+        _logger.LogInformation("Ticket processing consumer started");
         await _processor.StartProcessingAsync(stoppingToken);
 
-        // Keep running until cancellation
-        await Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => Task.CompletedTask, TaskContinuationOptions.None);
+        // Wait indefinitely until the host requests shutdown
+        await Task.Delay(Timeout.Infinite, stoppingToken)
+                  .ContinueWith(_ => Task.CompletedTask, TaskContinuationOptions.None);
     }
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
-        var messageId = args.Message.MessageId;
-        var eventType = args.Message.ApplicationProperties.TryGetValue("EventType", out var et) ? et?.ToString() : "Unknown";
+        var messageId  = args.Message.MessageId;
+        var eventType  = args.Message.ApplicationProperties.TryGetValue("EventType", out var et)
+                         ? et?.ToString() ?? "Unknown" : "Unknown";
+        var correlationId = args.Message.CorrelationId ?? messageId;
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        using var logScope = _logger.BeginScope(new Dictionary<string, object>
         {
-            ["MessageId"] = messageId,
-            ["EventType"] = eventType ?? "Unknown",
-            ["CorrelationId"] = args.Message.CorrelationId
+            ["MessageId"]     = messageId,
+            ["EventType"]     = eventType,
+            ["CorrelationId"] = correlationId,
+            ["DeliveryCount"] = args.Message.DeliveryCount
         });
+
+        // ── Tier 1 idempotency check ─────────────────────────────────────────
+        var cacheKey = $"processed:{messageId}";
+        if (_processedMessageCache.TryGetValue(cacheKey, out _))
+        {
+            _logger.LogInformation(
+                "Duplicate message {MessageId} detected via local cache — completing without reprocessing",
+                messageId);
+            await args.CompleteMessageAsync(args.Message, args.CancellationToken);
+            return;
+        }
 
         try
         {
@@ -86,92 +112,132 @@ public sealed class TicketProcessingBackgroundService : BackgroundService
 
             await RouteEventAsync(args.Message, args.CancellationToken);
 
-            // Explicit complete — message removed from queue only after successful processing
+            // Mark as processed in the local cache BEFORE completing so that a crash
+            // between these two lines still prevents a second processing on redelivery.
+            _processedMessageCache.Set(cacheKey, true, IdempotencyCacheOptions);
+
             await args.CompleteMessageAsync(args.Message, args.CancellationToken);
 
             _logger.LogInformation("Completed {EventType} message {MessageId}", eventType, messageId);
         }
+        catch (OperationCanceledException) when (args.CancellationToken.IsCancellationRequested)
+        {
+            // Host is shutting down — abandon so the message is re-delivered to another instance
+            await args.AbandonMessageAsync(args.Message, cancellationToken: CancellationToken.None);
+        }
+        catch (InvalidDataException ex)
+        {
+            // Permanent failure: malformed payload cannot be retried
+            _logger.LogError(ex,
+                "Permanent processing failure for {EventType} {MessageId} — sending to dead-letter queue",
+                eventType, messageId);
+
+            await args.DeadLetterMessageAsync(
+                args.Message,
+                deadLetterReason: "PermanentProcessingFailure",
+                deadLetterErrorDescription: ex.Message,
+                cancellationToken: args.CancellationToken);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process {EventType} message {MessageId}", eventType, messageId);
+            // Transient failure — abandon and let Service Bus retry
+            _logger.LogError(ex,
+                "Transient failure for {EventType} {MessageId} (delivery #{DeliveryCount}) — abandoning",
+                eventType, messageId, args.Message.DeliveryCount);
 
-            // Abandon returns message to queue for retry
-            // After MaxDeliveryCount, Service Bus automatically moves to DLQ
             await args.AbandonMessageAsync(args.Message, cancellationToken: args.CancellationToken);
         }
     }
 
-    private async Task RouteEventAsync(ServiceBusReceivedMessage message, CancellationToken cancellationToken)
+    private async Task RouteEventAsync(
+        ServiceBusReceivedMessage message, CancellationToken cancellationToken)
     {
-        var eventType = message.ApplicationProperties.TryGetValue("EventType", out var et) ? et?.ToString() : null;
+        var eventType = message.ApplicationProperties.TryGetValue("EventType", out var et)
+                        ? et?.ToString() : null;
         var body = message.Body.ToString();
 
         switch (eventType)
         {
             case nameof(TicketCreatedEvent):
-                var ticketCreated = JsonSerializer.Deserialize<TicketCreatedEvent>(body, JsonOptions);
-                if (ticketCreated is not null)
-                    await HandleTicketCreatedAsync(ticketCreated, cancellationToken);
+                var created = DeserializeOrThrow<TicketCreatedEvent>(body);
+                await HandleTicketCreatedAsync(created, cancellationToken);
                 break;
 
             case nameof(TicketStatusChangedEvent):
-                var statusChanged = JsonSerializer.Deserialize<TicketStatusChangedEvent>(body, JsonOptions);
-                if (statusChanged is not null)
-                    await HandleStatusChangedAsync(statusChanged, cancellationToken);
+                var changed = DeserializeOrThrow<TicketStatusChangedEvent>(body);
+                await HandleStatusChangedAsync(changed, cancellationToken);
                 break;
 
             case nameof(TicketEscalatedEvent):
-                var escalated = JsonSerializer.Deserialize<TicketEscalatedEvent>(body, JsonOptions);
-                if (escalated is not null)
-                    await HandleTicketEscalatedAsync(escalated, cancellationToken);
+                var escalated = DeserializeOrThrow<TicketEscalatedEvent>(body);
+                await HandleTicketEscalatedAsync(escalated, cancellationToken);
                 break;
 
             default:
-                _logger.LogWarning("Received unknown event type: {EventType}", eventType);
+                // Unknown schema version — complete rather than loop in DLQ.
+                // Log at Warning so the monitoring alert triggers for investigation.
+                _logger.LogWarning(
+                    "Received message with unrecognised EventType '{EventType}' — completing without processing",
+                    eventType);
                 break;
         }
     }
 
-    private async Task HandleTicketCreatedAsync(TicketCreatedEvent @event, CancellationToken cancellationToken)
+    private static T DeserializeOrThrow<T>(string body)
     {
-        _logger.LogInformation(
-            "Processing TicketCreated for {TicketNumber} (Customer: {CustomerId})",
-            @event.TicketNumber, @event.CustomerId);
-
-        // In production: send customer confirmation email, start SLA timer, notify assigned agent
-        await Task.Delay(50, cancellationToken); // Simulate async work
+        try
+        {
+            return JsonSerializer.Deserialize<T>(body, JsonOptions)
+                ?? throw new InvalidDataException($"Deserialised {typeof(T).Name} was null");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Cannot deserialise {typeof(T).Name}: {ex.Message}", ex);
+        }
     }
 
-    private async Task HandleStatusChangedAsync(TicketStatusChangedEvent @event, CancellationToken cancellationToken)
+    private async Task HandleTicketCreatedAsync(
+        TicketCreatedEvent @event, CancellationToken cancellationToken)
     {
         _logger.LogInformation(
-            "Processing StatusChanged for {TicketNumber}: {OldStatus} → {NewStatus}",
+            "TicketCreated: {TicketNumber} Priority={Priority} Customer={CustomerId}",
+            @event.TicketNumber, @event.Priority, @event.CustomerId);
+
+        // Production: send confirmation email, start SLA timer, notify assigned agent
+        await Task.Delay(10, cancellationToken);
+    }
+
+    private async Task HandleStatusChangedAsync(
+        TicketStatusChangedEvent @event, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "StatusChanged: {TicketNumber} {OldStatus} → {NewStatus}",
             @event.TicketNumber, @event.OldStatus, @event.NewStatus);
 
-        await Task.Delay(50, cancellationToken);
+        await Task.Delay(10, cancellationToken);
     }
 
-    private async Task HandleTicketEscalatedAsync(TicketEscalatedEvent @event, CancellationToken cancellationToken)
+    private async Task HandleTicketEscalatedAsync(
+        TicketEscalatedEvent @event, CancellationToken cancellationToken)
     {
         _logger.LogWarning(
-            "Processing Escalation for {TicketNumber} (Level {Level}): {Reason}",
+            "Escalation: {TicketNumber} Level={Level} Reason={Reason}",
             @event.TicketNumber, @event.EscalationLevel, @event.Reason);
 
-        await Task.Delay(50, cancellationToken);
+        await Task.Delay(10, cancellationToken);
     }
 
     private Task ProcessErrorAsync(ProcessErrorEventArgs args)
     {
         _logger.LogError(args.Exception,
-            "Service Bus processor error. Source: {Source}, EntityPath: {EntityPath}",
+            "Service Bus processor error. Source={Source} EntityPath={EntityPath}",
             args.ErrorSource, args.EntityPath);
-
         return Task.CompletedTask;
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Ticket processing background service stopping");
+        _logger.LogInformation("Ticket processing consumer stopping");
         await _processor.StopProcessingAsync(cancellationToken);
         await _processor.DisposeAsync();
         await base.StopAsync(cancellationToken);

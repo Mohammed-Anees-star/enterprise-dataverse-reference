@@ -8,7 +8,7 @@ namespace EnterpriseTicketing.Application.Tickets.Commands.EscalateTicket;
 
 public sealed class EscalateTicketCommandHandler(
     ITicketRepository ticketRepository,
-    IEventBus eventBus,
+    IOutboxStore outboxStore,
     ICurrentUserService currentUserService,
     ILogger<EscalateTicketCommandHandler> logger) : IRequestHandler<EscalateTicketCommand>
 {
@@ -23,7 +23,7 @@ public sealed class EscalateTicketCommandHandler(
         await ticketRepository.UpdateAsync(ticket, cancellationToken);
 
         foreach (var domainEvent in ticket.DomainEvents)
-            await eventBus.PublishAsync(domainEvent, cancellationToken);
+            await outboxStore.AppendAsync(domainEvent, cancellationToken);
 
         ticket.ClearDomainEvents();
 

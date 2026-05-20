@@ -8,7 +8,7 @@ namespace EnterpriseTicketing.Application.Tickets.Commands.CloseTicket;
 
 public sealed class CloseTicketCommandHandler(
     ITicketRepository ticketRepository,
-    IEventBus eventBus,
+    IOutboxStore outboxStore,
     ICurrentUserService currentUserService,
     ILogger<CloseTicketCommandHandler> logger) : IRequestHandler<CloseTicketCommand>
 {
@@ -23,7 +23,7 @@ public sealed class CloseTicketCommandHandler(
         await ticketRepository.UpdateAsync(ticket, cancellationToken);
 
         foreach (var domainEvent in ticket.DomainEvents)
-            await eventBus.PublishAsync(domainEvent, cancellationToken);
+            await outboxStore.AppendAsync(domainEvent, cancellationToken);
 
         ticket.ClearDomainEvents();
 

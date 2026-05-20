@@ -3,148 +3,154 @@ using EnterpriseTicketing.Application.Common.Interfaces;
 using EnterpriseTicketing.Application.Tickets.Commands.CreateTicket;
 using EnterpriseTicketing.Domain.Entities;
 using EnterpriseTicketing.Domain.Enums;
+using EnterpriseTicketing.Domain.Events;
 using EnterpriseTicketing.Domain.Interfaces;
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
 namespace EnterpriseTicketing.Application.Tests.Tickets.Commands;
 
 /// <summary>
-/// Application handler tests use Moq to substitute infrastructure dependencies.
-/// Tests verify orchestration logic: correct repository calls, event publishing,
-/// error propagation, and return values.
-///
-/// These tests run without real Dataverse or Service Bus connections.
+/// Unit tests for <see cref="CreateTicketCommandHandler"/>.
+/// All infrastructure dependencies are replaced with Moq doubles.
+/// These tests run in < 5 ms — no network, no process boundary.
 /// </summary>
 public sealed class CreateTicketCommandHandlerTests
 {
-    private readonly Mock<ITicketRepository> _ticketRepositoryMock;
-    private readonly Mock<ICustomerRepository> _customerRepositoryMock;
-    private readonly Mock<IEventBus> _eventBusMock;
-    private readonly Mock<ILogger<CreateTicketCommandHandler>> _loggerMock;
-    private readonly CreateTicketCommandHandler _handler;
+    private readonly Mock<ITicketRepository>      _ticketRepo     = new();
+    private readonly Mock<ICustomerRepository>    _customerRepo   = new();
+    private readonly Mock<IOutboxStore>           _outbox         = new();
+    private readonly Mock<ITicketNumberSequence>  _sequence       = new();
+    private readonly CreateTicketCommandHandler   _handler;
 
     public CreateTicketCommandHandlerTests()
     {
-        _ticketRepositoryMock = new Mock<ITicketRepository>();
-        _customerRepositoryMock = new Mock<ICustomerRepository>();
-        _eventBusMock = new Mock<IEventBus>();
-        _loggerMock = new Mock<ILogger<CreateTicketCommandHandler>>();
+        _sequence
+            .Setup(s => s.NextAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
 
         _handler = new CreateTicketCommandHandler(
-            _ticketRepositoryMock.Object,
-            _customerRepositoryMock.Object,
-            _eventBusMock.Object,
-            _loggerMock.Object);
+            _ticketRepo.Object,
+            _customerRepo.Object,
+            _outbox.Object,
+            _sequence.Object,
+            NullLogger<CreateTicketCommandHandler>.Instance);
     }
 
     [Fact]
-    public async Task Handle_ValidCommand_ReturnsTicketId()
+    public async Task Handle_valid_command_returns_non_empty_guid()
     {
         var customerId = Guid.NewGuid();
-        _customerRepositoryMock
-            .Setup(r => r.ExistsAsync(customerId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+        SetupCustomerExists(customerId, true);
+        SetupTicketAdd();
 
-        _ticketRepositoryMock
+        var id = await _handler.Handle(BuildCommand(customerId), CancellationToken.None);
+
+        id.Should().NotBe(Guid.Empty);
+    }
+
+    [Fact]
+    public async Task Handle_valid_command_persists_ticket_with_correct_fields()
+    {
+        var customerId = Guid.NewGuid();
+        SetupCustomerExists(customerId, true);
+
+        Ticket? captured = null;
+        _ticketRepo
             .Setup(r => r.AddAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Callback<Ticket, CancellationToken>((t, _) => captured = t);
 
-        var command = new CreateTicketCommand
+        await _handler.Handle(new CreateTicketCommand
         {
-            Title = "Production system down",
-            Description = "Users cannot log in since 3pm",
-            Priority = TicketPriority.Critical,
-            Category = TicketCategory.TechnicalSupport,
-            CustomerId = customerId
-        };
+            Title       = "Disk almost full",
+            Description = "Root partition at 95%",
+            Priority    = TicketPriority.Critical,
+            Category    = TicketCategory.TechnicalSupport,
+            CustomerId  = customerId
+        }, CancellationToken.None);
 
-        var result = await _handler.Handle(command, CancellationToken.None);
-
-        result.Should().NotBe(Guid.Empty);
+        captured.Should().NotBeNull();
+        captured!.Title.Should().Be("Disk almost full");
+        captured.Priority.Should().Be(TicketPriority.Critical);
+        captured.CustomerId.Should().Be(customerId);
+        captured.Status.Should().Be(TicketStatus.Open);
     }
 
     [Fact]
-    public async Task Handle_CustomerNotFound_ThrowsNotFoundException()
+    public async Task Handle_valid_command_appends_domain_event_to_outbox()
     {
         var customerId = Guid.NewGuid();
-        _customerRepositoryMock
-            .Setup(r => r.ExistsAsync(customerId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+        SetupCustomerExists(customerId, true);
+        SetupTicketAdd();
 
-        var command = new CreateTicketCommand
-        {
-            Title = "Issue",
-            Description = "Description",
-            Priority = TicketPriority.Low,
-            Category = TicketCategory.GeneralInquiry,
-            CustomerId = customerId
-        };
+        await _handler.Handle(BuildCommand(customerId), CancellationToken.None);
 
-        var act = async () => await _handler.Handle(command, CancellationToken.None);
+        // TicketCreated event must be written to the outbox, NOT directly to Service Bus
+        _outbox.Verify(
+            o => o.AppendAsync(It.IsAny<TicketCreatedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Handle_valid_command_uses_sequence_for_ticket_number()
+    {
+        var customerId = Guid.NewGuid();
+        SetupCustomerExists(customerId, true);
+        SetupTicketAdd();
+
+        await _handler.Handle(BuildCommand(customerId), CancellationToken.None);
+
+        _sequence.Verify(
+            s => s.NextAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Handle_nonexistent_customer_throws_not_found_exception()
+    {
+        SetupCustomerExists(Guid.NewGuid(), false);
+
+        var act = () => _handler.Handle(BuildCommand(Guid.NewGuid()), CancellationToken.None);
 
         await act.Should().ThrowAsync<NotFoundException>();
     }
 
     [Fact]
-    public async Task Handle_ValidCommand_PublishesDomainEvent()
+    public async Task Handle_when_repository_throws_exception_propagates()
     {
         var customerId = Guid.NewGuid();
-        _customerRepositoryMock
-            .Setup(r => r.ExistsAsync(customerId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+        SetupCustomerExists(customerId, true);
 
-        _ticketRepositoryMock
+        _ticketRepo
+            .Setup(r => r.AddAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Dataverse unavailable"));
+
+        var act = () => _handler.Handle(BuildCommand(customerId), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+                          .WithMessage("Dataverse unavailable");
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    private void SetupCustomerExists(Guid id, bool exists) =>
+        _customerRepo
+            .Setup(r => r.ExistsAsync(id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(exists);
+
+    private void SetupTicketAdd() =>
+        _ticketRepo
             .Setup(r => r.AddAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var command = new CreateTicketCommand
-        {
-            Title = "Test Ticket",
-            Description = "Test Description",
-            Priority = TicketPriority.High,
-            Category = TicketCategory.Bug,
-            CustomerId = customerId
-        };
-
-        await _handler.Handle(command, CancellationToken.None);
-
-        // Verify that at least one domain event was published (TicketCreatedEvent)
-        _eventBusMock.Verify(
-            e => e.PublishAsync(It.IsAny<Domain.Events.IDomainEvent>(), It.IsAny<CancellationToken>()),
-            Times.AtLeastOnce);
-    }
-
-    [Fact]
-    public async Task Handle_ValidCommand_PersistsTicket()
+    private static CreateTicketCommand BuildCommand(Guid customerId) => new()
     {
-        var customerId = Guid.NewGuid();
-        _customerRepositoryMock
-            .Setup(r => r.ExistsAsync(customerId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        Ticket? capturedTicket = null;
-        _ticketRepositoryMock
-            .Setup(r => r.AddAsync(It.IsAny<Ticket>(), It.IsAny<CancellationToken>()))
-            .Callback<Ticket, CancellationToken>((t, _) => capturedTicket = t)
-            .Returns(Task.CompletedTask);
-
-        var command = new CreateTicketCommand
-        {
-            Title = "Captured Ticket",
-            Description = "Description",
-            Priority = TicketPriority.Medium,
-            Category = TicketCategory.Billing,
-            CustomerId = customerId
-        };
-
-        await _handler.Handle(command, CancellationToken.None);
-
-        capturedTicket.Should().NotBeNull();
-        capturedTicket!.Title.Should().Be("Captured Ticket");
-        capturedTicket.CustomerId.Should().Be(customerId);
-        capturedTicket.Status.Should().Be(EnterpriseTicketing.Domain.Enums.TicketStatus.Open);
-    }
+        Title       = "Test Ticket",
+        Description = "Test Description",
+        Priority    = TicketPriority.Medium,
+        Category    = TicketCategory.Billing,
+        CustomerId  = customerId
+    };
 }
