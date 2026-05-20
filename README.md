@@ -3,7 +3,7 @@
 
 > A production-grade enterprise reference implementation built to the standard of senior architects and principal engineers.
 
-[![CI](https://github.com/your-org/enterprise-ticketing/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/enterprise-ticketing/actions)
+[![CI](https://github.com/Mohammed-Anees-star/enterprise-dataverse-reference/actions/workflows/ci.yml/badge.svg)](https://github.com/Mohammed-Anees-star/enterprise-dataverse-reference/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -168,8 +168,8 @@ enterprise-ticketing/
 ### Step 1: Clone and restore
 
 ```bash
-git clone https://github.com/your-org/enterprise-ticketing.git
-cd enterprise-ticketing
+git clone https://github.com/Mohammed-Anees-star/enterprise-dataverse-reference.git
+cd enterprise-dataverse-reference
 dotnet restore src/EnterpriseTicketing.sln
 ```
 
