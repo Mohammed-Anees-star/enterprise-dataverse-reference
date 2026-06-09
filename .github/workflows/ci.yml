@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  SOLUTION_PATH: 'src/EnterpriseTicketing.sln'
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.SOLUTION_PATH }}
+
+      - name: Build
+        run: dotnet build ${{ env.SOLUTION_PATH }} --no-restore --configuration Release
+
+      - name: Run unit tests
+        run: |
+          dotnet test tests/EnterpriseTicketing.Domain.Tests/EnterpriseTicketing.Domain.Tests.csproj \
+            --no-build --configuration Release \
+            --logger "trx;LogFileName=domain-tests.trx" \
+            --results-directory ./test-results
+
+          dotnet test tests/EnterpriseTicketing.Application.Tests/EnterpriseTicketing.Application.Tests.csproj \
+            --no-build --configuration Release \
+            --logger "trx;LogFileName=application-tests.trx" \
+            --results-directory ./test-results
+
+      - name: Run integration tests
+        run: |
+          dotnet test tests/EnterpriseTicketing.API.IntegrationTests/EnterpriseTicketing.API.IntegrationTests.csproj \
+            --no-build --configuration Release \
+            --logger "trx;LogFileName=integration-tests.trx" \
+            --results-directory ./test-results
+        env:
+          AzureAd__TenantId: 00000000-0000-0000-0000-000000000001
+          AzureAd__ClientId: 00000000-0000-0000-0000-000000000002
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: ./test-results/*.trx
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build API Docker image
+        run: |
+          docker build \
+            -f src/4-API/EnterpriseTicketing.API/Dockerfile \
+            -t enterprise-ticketing-api:${{ github.sha }} \
+            .
+
+      - name: Build Functions Docker image
+        run: |
+          docker build \
+            -f src/5-Functions/EnterpriseTicketing.Functions/Dockerfile \
+            -t enterprise-ticketing-functions:${{ github.sha }} \
+            .
+
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.SOLUTION_PATH }}
+
+      - name: Check formatting
+        run: dotnet format ${{ env.SOLUTION_PATH }} --verify-no-changes --no-restore
+        continue-on-error: true
+
+      - name: Build with nullable enabled
+        run: |
+          dotnet build ${{ env.SOLUTION_PATH }} \
+            --no-restore \
+            --configuration Release \
+            -p:TreatWarningsAsErrors=false \
+            -p:Nullable=enable
