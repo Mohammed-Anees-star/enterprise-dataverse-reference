@@ -60,7 +60,7 @@
 ## Repository Structure
 
 ```
-enterprise-ticketing/
+enterprise-dataverse-reference/
 ├── README.md                          ← This file
 ├── ARCHITECTURE.md                    ← Comprehensive architecture documentation
 ├── .env.example                       ← Environment variable template
